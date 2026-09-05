@@ -374,27 +374,76 @@
     });
   }
 
-  /* ================= Storage ================= */
+  /* ================= Storage (localStorage-backed, works on any static host) ================= */
+  var LS_PREFIX = 'tminus:';
+
+  function lsGet(key){
+    try{
+      var raw = window.localStorage.getItem(LS_PREFIX + key);
+      return raw === null ? null : raw;
+    }catch(e){ return null; }
+  }
+  function lsSet(key, value){
+    try{
+      window.localStorage.setItem(LS_PREFIX + key, value);
+      return true;
+    }catch(e){ console.error('save failed', e); return false; }
+  }
+  function lsDelete(key){
+    try{
+      window.localStorage.removeItem(LS_PREFIX + key);
+      return true;
+    }catch(e){ return false; }
+  }
+  function lsListKeys(prefix){
+    var out = [];
+    try{
+      for (var i=0;i<window.localStorage.length;i++){
+        var full = window.localStorage.key(i);
+        if (full && full.indexOf(LS_PREFIX) === 0){
+          var short = full.slice(LS_PREFIX.length);
+          if (short.indexOf(prefix) === 0) out.push(short);
+        }
+      }
+    }catch(e){}
+    return out;
+  }
+
   var Store = {
     getDay: function(dateStr){
-      return window.storage.get('day:'+dateStr, false).then(function(res){
-        return res ? JSON.parse(res.value) : null;
+      return Promise.resolve().then(function(){
+        var raw = lsGet('day:'+dateStr);
+        return raw ? JSON.parse(raw) : null;
       })['catch'](function(){ return null; });
     },
     setDay: function(dateStr, record){
-      return window.storage.set('day:'+dateStr, JSON.stringify(record), false).then(function(){ return true; })['catch'](function(e){
+      return Promise.resolve().then(function(){
+        return lsSet('day:'+dateStr, JSON.stringify(record));
+      })['catch'](function(e){
         console.error('save day failed', e); return false;
       });
     },
     getSummary: function(){
-      return window.storage.get('meta:summary', false).then(function(res){
-        return res ? JSON.parse(res.value) : null;
+      return Promise.resolve().then(function(){
+        var raw = lsGet('meta:summary');
+        return raw ? JSON.parse(raw) : null;
       })['catch'](function(){ return null; });
     },
     setSummary: function(summary){
-      return window.storage.set('meta:summary', JSON.stringify(summary), false).then(function(){ return true; })['catch'](function(e){
+      return Promise.resolve().then(function(){
+        return lsSet('meta:summary', JSON.stringify(summary));
+      })['catch'](function(e){
         console.error('save summary failed', e); return false;
       });
+    },
+    deleteDay: function(dateStr){
+      return Promise.resolve().then(function(){ return lsDelete('day:'+dateStr); });
+    },
+    deleteSummary: function(){
+      return Promise.resolve().then(function(){ return lsDelete('meta:summary'); });
+    },
+    listDayKeys: function(){
+      return Promise.resolve().then(function(){ return lsListKeys('day:'); });
     }
   };
 
@@ -612,7 +661,7 @@
       changeBtn.addEventListener('click', function(){
         if (!window.confirm('Reset today\'s plan and choose again?')) return;
         state.todayRecord = null;
-        window.storage['delete']('day:'+state.todayStr, false)['catch'](function(){});
+        Store.deleteDay(state.todayStr)['catch'](function(){});
         renderToday();
       });
     }
@@ -815,15 +864,14 @@
   function bindFooter(){
     document.getElementById('reset-btn').addEventListener('click', function(){
       if (!window.confirm('This clears all saved progress, streaks, and history. This cannot be undone. Continue?')) return;
-      window.storage.list('day:', false).then(function(list){
-        var keys = (list && list.keys) ? list.keys : [];
+      Store.listDayKeys().then(function(keys){
         var chain = Promise.resolve();
-        keys.forEach(function(k){
-          chain = chain.then(function(){ return window.storage['delete'](k, false)['catch'](function(){}); });
+        (keys || []).forEach(function(k){
+          chain = chain.then(function(){ return lsDelete(k); });
         });
         return chain;
       })['catch'](function(){}).then(function(){
-        return window.storage['delete']('meta:summary', false)['catch'](function(){});
+        return Store.deleteSummary()['catch'](function(){});
       })['catch'](function(){}).then(function(){
         window.location.reload();
       });
